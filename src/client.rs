@@ -201,7 +201,7 @@ impl Client {
             async move {
                 let mut out: Vec<u8> = Vec::new();
                 debug!("Pulling image layer");
-                this.pull_layer(image, &layer.digest, &mut out).await?;
+                this._pull_layer(image, &layer.digest, &mut out).await?;
                 Ok::<_, anyhow::Error>(ImageLayer::new(out, layer.media_type))
             }
         });
@@ -582,7 +582,7 @@ impl Client {
 
         let mut out: Vec<u8> = Vec::new();
         debug!("Pulling config layer");
-        self.pull_layer(image, &manifest.config.digest, &mut out)
+        self._pull_layer(image, &manifest.config.digest, &mut out)
             .await?;
 
         Ok((manifest, digest, String::from_utf8(out)?))
@@ -595,7 +595,25 @@ impl Client {
     /// repository and the registry, but it is not used to verify that
     /// the digest is a layer inside of the image. (The manifest is
     /// used for that.)
-    async fn pull_layer<T: AsyncWrite + Unpin>(
+    pub async fn pull_layer<T: AsyncWrite + Unpin>(
+        &mut self,
+        image: &Reference,
+        auth: &RegistryAuth,
+        digest: &str,
+        mut out: T,
+    ) -> anyhow::Result<()> {
+        let op = RegistryOperation::Pull;
+        if !self.tokens.contains_key(image, op) {
+            self.auth(image, auth, op).await?;
+        }
+
+        self._pull_layer(image, digest, out)
+            .await?;
+
+        Ok(())
+    }
+
+    async fn _pull_layer<T: AsyncWrite + Unpin>(
         &self,
         image: &Reference,
         digest: &str,
@@ -1597,7 +1615,7 @@ mod test {
             // This call likes to flake, so we try it at least 5 times
             let mut last_error = None;
             for i in 1..6 {
-                if let Err(e) = c.pull_layer(&reference, &layer0.digest, &mut file).await {
+                if let Err(e) = c._pull_layer(&reference, &layer0.digest, &mut file).await {
                     println!(
                         "Got error on pull_layer call attempt {}. Will retry in 1s: {:?}",
                         i, e
